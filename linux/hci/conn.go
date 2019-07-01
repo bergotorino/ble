@@ -244,7 +244,7 @@ func (c *Conn) writePDU(pdu []byte) (int, error) {
 		sent += flen
 
 		flags = (pbfContinuing << 4) // Set "continuing" in the boundary flags for the rest of fragments, if any.
-		pdu = pdu[flen:]             // Advence the point
+		pdu = pdu[flen:]             // Advance the point
 	}
 	return sent, nil
 }

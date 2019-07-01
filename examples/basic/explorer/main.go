@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -9,8 +10,9 @@ import (
 	"time"
 
 	"github.com/go-ble/ble"
-	"github.com/go-ble/ble/linux"
+	"github.com/go-ble/ble/linux/hci"
 	"github.com/pkg/errors"
+	"github.com/rigado/ble/linux/hci/mgmt"
 )
 
 var (
@@ -18,8 +20,16 @@ var (
 	name   = flag.String("name", "", "name of remote peripheral")
 	addr   = flag.String("addr", "C5:74:7A:BA:49:32", "address of remote peripheral (MAC on Linux, UUID on OS X)")
 	sub    = flag.Duration("sub", 0, "subscribe to notification and indication for a specified period")
-	sd     = flag.Duration("sd", 5*time.Second, "scanning duration, 0 for indefinitely")
+	sd     = flag.Duration("sd", 30*time.Second, "scanning duration, 0 for indefinitely")
 )
+
+func reverse(a []byte) []byte {
+	for left, right := 0, len(a)-1; left < right; left, right = left+1, right-1 {
+		a[left], a[right] = a[right], a[left]
+	}
+
+	return a
+}
 
 func main() {
 	flag.Parse()
@@ -27,69 +37,89 @@ func main() {
 	log.Printf("name: %v", *name)
 	log.Printf("addr: %v", *addr)
 
-	optid := ble.OptDeviceID(*device)
-	d, err := linux.NewDeviceWithNameAndHandler("", nil, optid)
-	if err != nil {
-		log.Fatalf("can't new device : %s", err)
-	}
-	ble.SetDefaultDevice(d)
-
-	// Default to search device with name of Gopher (or specified by user).
-	filter := func(a ble.Advertisement) bool {
-		return strings.ToUpper(a.LocalName()) == strings.ToUpper(*name)
-	}
-
-	// If addr is specified, search for addr instead.
-	if len(*addr) != 0 {
-		filter = func(a ble.Advertisement) bool {
-			return strings.ToUpper(a.Addr().String()) == strings.ToUpper(*addr)
-		}
-	}
-
-	// Scan for specified durantion, or until interrupted by user.
-	fmt.Printf("Scanning for %s...\n", *sd)
-	ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), *sd))
-	cln, err := ble.Connect(ctx, filter)
-	if err != nil {
-		log.Fatalf("can't connect : %s", err)
-	}
-
-	// Make sure we had the chance to print out the message.
-	done := make(chan struct{})
-	// Normally, the connection is disconnected by us after our exploration.
-	// However, it can be asynchronously disconnected by the remote peripheral.
-	// So we wait(detect) the disconnection in the go routine.
-	go func() {
-		<-cln.Disconnected()
-		fmt.Printf("[ %s ] is disconnected \n", cln.Addr())
-		close(done)
-	}()
-
-	<-time.After(5 * time.Second)
-
-	// fmt.Printf("Discovering profile...\n")
-	// p, err := cln.DiscoverProfile(true)
+	// optid := ble.OptDeviceID(*device)
+	// d, err := linux.NewDeviceWithNameAndHandler("", nil, optid)
 	// if err != nil {
-	// 	log.Fatalf("can't discover profile: %s", err)
+	// 	log.Fatalf("can't new device : %s", err)
+	// }
+	// ble.SetDefaultDevice(d)
+	hci.SmpInit()
+
+	ms, err := mgmt.NewSocket(1)
+	if err != nil {
+		log.Fatalf("ms err %v", err)
+	}
+
+	macStr := strings.Replace(*addr, ":", "", -1)
+	mac, err := hex.DecodeString(macStr)
+	err = ms.Pair(reverse(mac), 0x2) //random
+	log.Println("========== pair err ", err)
+
+	for {
+	}
+
+	// // Default to search device with name of Gopher (or specified by user).
+	// filter := func(a ble.Advertisement) bool {
+	// 	return strings.ToUpper(a.LocalName()) == strings.ToUpper(*name)
 	// }
 
-	log.Println("bonding")
-	err = cln.Bond()
-	if err != nil {
-		log.Println(err)
-	}
+	// // If addr is specified, search for addr instead.
+	// if len(*addr) != 0 {
+	// 	filter = func(a ble.Advertisement) bool {
+	// 		return strings.ToUpper(a.Addr().String()) == strings.ToUpper(*addr)
+	// 	}
+	// }
 
-	<-time.After(5 * time.Second)
+	// // Scan for specified durantion, or until interrupted by user.
+	// fmt.Printf("Scanning for %s...\n", *sd)
+	// ctx := ble.WithSigHandler(context.WithTimeout(context.Background(), *sd))
+	// cln, err := ble.Connect(ctx, filter)
+	// if err != nil {
+	// 	log.Fatalf("can't connect : %s", err)
+	// }
 
-	// log.Println("exploring")
-	// // Start the exploration.
-	// explore(cln, p)
+	// // Make sure we had the chance to print out the message.
+	// done := make(chan struct{})
+	// // Normally, the connection is disconnected by us after our exploration.
+	// // However, it can be asynchronously disconnected by the remote peripheral.
+	// // So we wait(detect) the disconnection in the go routine.
+	// go func() {
+	// 	<-cln.Disconnected()
+	// 	fmt.Printf("[ %s ] is disconnected \n", cln.Addr())
+	// 	close(done)
+	// }()
 
-	// Disconnect the connection. (On OS X, this might take a while.)
-	fmt.Printf("Disconnecting [ %s ]... (this might take up to few seconds on OS X)\n", cln.Addr())
-	cln.CancelConnection()
+	// log.Println("==========connected!")
+	// <-time.After(time.Second)
+	// macStr := strings.Replace(cln.Addr().String(), ":", "", -1)
+	// mac, err := hex.DecodeString(macStr)
+	// err = ms.Pair(mac, 0x2) //random
+	// log.Println("========== pair err ", err)
 
-	<-done
+	// // fmt.Printf("Discovering profile...\n")
+	// // p, err := cln.DiscoverProfile(true)
+	// // if err != nil {
+	// // 	log.Fatalf("can't discover profile: %s", err)
+	// // }
+
+	// // log.Println("bonding")
+	// // err = cln.Bond()
+	// // if err != nil {
+	// // 	log.Println(err)
+	// // }
+
+	// for {
+	// }
+
+	// // log.Println("exploring")
+	// // // Start the exploration.
+	// // explore(cln, p)
+
+	// // Disconnect the connection. (On OS X, this might take a while.)
+	// fmt.Printf("Disconnecting [ %s ]... (this might take up to few seconds on OS X)\n", cln.Addr())
+	// cln.CancelConnection()
+
+	// <-done
 }
 
 func explore(cln ble.Client, p *ble.Profile) error {

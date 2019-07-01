@@ -25,12 +25,12 @@ const (
 
 type smpDispatcher struct {
 	desc    string
-	handler func(p pdu) error
+	handler func(p pdu) ([]byte, error)
 }
 
 var dispatcher = map[byte]smpDispatcher{
-	pairingRequest:          smpDispatcher{"pairing request", nil},
-	pairingResponse:         smpDispatcher{"pairing response", nil},
+	pairingRequest:          smpDispatcher{"pairing request", smpOnPairingRequest},
+	pairingResponse:         smpDispatcher{"pairing response", smpOnPairingResponse},
 	pairingConfirm:          smpDispatcher{"pairing confirm", nil},
 	pairingRandom:           smpDispatcher{"pairing random", nil},
 	pairingFailed:           smpDispatcher{"pairing failed", nil},
@@ -39,7 +39,7 @@ var dispatcher = map[byte]smpDispatcher{
 	identityInformation:     smpDispatcher{"id info", nil},
 	identityAddrInformation: smpDispatcher{"id addr info", nil},
 	signingInformation:      smpDispatcher{"signing info", nil},
-	securityRequest:         smpDispatcher{"security req", nil},
+	securityRequest:         smpDispatcher{"security req", smpOnSecurityRequest},
 	pairingPublicKey:        smpDispatcher{"pairing pub key", nil},
 	pairingDHKeyCheck:       smpDispatcher{"pairing dhkey check", nil},
 	pairingKeypress:         smpDispatcher{"pairing keypress", nil},
@@ -47,7 +47,7 @@ var dispatcher = map[byte]smpDispatcher{
 
 func (c *Conn) sendSMP(p pdu) error {
 	buf := bytes.NewBuffer(make([]byte, 0))
-	if err := binary.Write(buf, binary.LittleEndian, uint16(4+len(p))); err != nil {
+	if err := binary.Write(buf, binary.LittleEndian, uint16(len(p))); err != nil {
 		return err
 	}
 	if err := binary.Write(buf, binary.LittleEndian, cidSMP); err != nil {
@@ -57,14 +57,16 @@ func (c *Conn) sendSMP(p pdu) error {
 		return err
 	}
 	_, err := c.writePDU(buf.Bytes())
-	fmt.Println("smp", "tx", fmt.Sprintf("[%X]", buf.Bytes()))
+	fmt.Printf("smp tx %v, err %v\n", fmt.Sprintf("[%X]", buf.Bytes()), err)
 	return err
 }
 
 func (c *Conn) handleSMP(p pdu) error {
 	fmt.Println("smp", "rx", fmt.Sprintf("[%X]", p))
 
-	code := p[0]
+	payload := p.payload()
+	code := payload[0]
+	// data := payload[1:]
 	v, ok := dispatcher[code]
 	if !ok {
 		logger.Error("smp", "unhandled smp code %v", code)
@@ -72,13 +74,25 @@ func (c *Conn) handleSMP(p pdu) error {
 	}
 
 	fmt.Println("smp", "rx type:", v.desc)
+	// if v.handler != nil {
+	// 	//todo!!
+	// 	fmt.Println("dispatching to smp handler...")
+	// 	r, err := v.handler(data)
+	// 	if err != nil {
+	// 		log.Println(err)
+	// 		return err
+	// 	}
+	// 	return c.sendSMP(r)
+	// }
 
-	if v.handler != nil {
-		//todo!!
-		return v.handler(p)
-	}
+	// fmt.Println("no smp handler...")
+	// // FIXME: work around to the lack of SMP implementation - always return non-supported.
+	// // C.5.1 Pairing Not Supported by Slave
+	// return c.sendSMP([]byte{pairingFailed, 0x05})
 
-	// FIXME: work aound to the lack of SMP implementation - always return non-supported.
-	// C.5.1 Pairing Not Supported by Slave
-	return c.sendSMP([]byte{pairingFailed, 0x05})
+	return nil
+}
+
+func (c *Conn) Bond() error {
+	return nil //c.smpSendPairingRequest()
 }
