@@ -197,8 +197,6 @@ func (d *Device) Dial(ctx context.Context, a ble.Addr) (ble.Client, error) {
 		gattClient := cln.(*gatt.Client)
 		cln = gatt.ClientWithServer(gattClient, d.Server.DB())
 	}
-	//todo: test this more
-	//srv := d.Server
 	return cln, errors.Wrap(err, "can't dial")
 }
 
